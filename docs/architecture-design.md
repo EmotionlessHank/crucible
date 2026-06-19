@@ -1,7 +1,7 @@
 # Crypto Swing Algo Culling Machine — Architecture Design
 
 > Version: 2026-06-19 · Status: **Pending user confirmation → Phase 0 coding begins after confirmation**
-> Companion: decision log in project memory; evidence in `/Users/hang/AI/trading/crypto-algo-loop-best-practices.md`
+> Companion: decision log in project memory; evidence in `docs/best-practices-research.md`
 > One-line positioning: A Darwinian strategy-screening machine — continuously culling overfitting junk, letting only validated survivors graduate to real capital.
 
 ---
@@ -12,6 +12,8 @@
 - **Core-satellite barbell**: the core sleeve already holds BTC DCA/laddered buys (stable); this machine is the ~1% experimental satellite sleeve (high-odds bets). The real deliverable = credible strategies + a machine that doesn't deceive itself — not the 1% capital.
 - **Fitness determines everything**: the machine hill-climbs toward its score. Set the score to "returns" → evolves cheaters; set it to "survive first, then risk-adjusted optimum" → evolves genuine edge.
 - **Returns are an output, not an entry criterion**: 100%+ annualized is the expected output of "validated edge × leverage" — **never used as an admission gate**.
+- **Config over code**: every knob you'd turn to iterate — strategy parameters and search spaces, validation thresholds, fitness weights, guardrails, data sources, cost model — lives in versioned **config files**, never in code. Fine-tuning a strategy/threshold/guardrail **must not require a code change or a redeploy**. Code holds only *logic* (algorithms, gate implementations); all *tunables* are config.
+- **CLI-first**: the deliverable is a command-line tool (`crucible <command>`). It runs unattended on a server (cron/systemd) and is callable by AI agents — non-interactive, structured (`--json`) output, deterministic exit codes.
 - **Phased**: logic proven on paper first, real capital second.
 
 ---
@@ -43,6 +45,47 @@
 ```
 
 Data layer and backtest layer run throughout; vault-style holdout is locked at all times — opened only once before the admission gate.
+
+---
+
+## 2.5 Interface & Configuration Architecture
+
+### 2.5.1 Config-over-code
+
+**Principle**: tune by editing config, never by editing code. Code is logic; config is everything tunable.
+
+| In config (tunable, no redeploy) | In code (logic only) |
+|---|---|
+| Strategy parameters + hyperopt search spaces | Strategy algorithm (the IStrategy class) |
+| Validation thresholds (DSR / PBO / OOS-ratio / embargo / MC) | Gate implementations (walk-forward, DSR, PBO…) |
+| Fitness weights + penalties (Calmar weight, turnover/instability penalty) | The fitness scoring function |
+| Admission-gate floors, guardrails (position cap, leverage cap, drawdown breaker, concurrency) | Guardrail enforcement logic |
+| Data sources / timeframes / date ranges / cost model (fees, slippage, funding) | Data pipeline, cost-model engine |
+
+- **Format**: **YAML** for crucible's own configs (comments let you record *why* a value was tuned — feeds the iteration journal). freqtrade keeps its native JSON where required, **generated/merged from** crucible config (single source of truth).
+- **Layering + precedence**: `config/base.yaml` < `config/profiles/{dryrun,live}.yaml` < `config/strategies/<family>.yaml` < CLI `--set key=value` overrides. Highest wins.
+- **Schema-validated, fail-fast**: configs are parsed into **Pydantic** models — an invalid/missing key errors immediately with a clear message. **No silent fallback to defaults** (silent fallback is exactly how strategies drift onto wrong settings).
+- **Secrets stay out of config**: config references credentials by env-var name only; real secrets live in `.env` / a secret manager (ties to the `infra-config-sot` identifier≠secret rule).
+- **Reproducibility**: every run snapshots its fully-resolved config into MLflow alongside code hash + seed — a result is always tied to the exact config that produced it.
+
+### 2.5.2 CLI-first (thin CLI, fat core)
+
+A single Typer entrypoint `crucible`; each subcommand maps to a pipeline stage:
+
+| Command | Stage |
+|---|---|
+| `crucible data pull/update` | fetch & cache OHLCV / funding / markPrice |
+| `crucible backtest --strategy X` | single backtest (in-sample) |
+| `crucible optimize --strategy X` | hyperopt parameter search |
+| `crucible validate --candidate C` | walk-forward + DSR + PBO + fitness → gate verdict |
+| `crucible paper --strategy X` | dry-run forward test |
+| `crucible live --strategy X` | live deploy (Phase 2; guardrailed) |
+| `crucible loop` | run the inner self-iteration loop until budget/time |
+| `crucible report` | culling report / journal summary |
+| `crucible status` | active runs / state |
+
+- **Agent- & server-friendly**: non-interactive (all inputs via flags/config, no prompts), `--json` structured output, **deterministic exit codes per failure class**, clean stdout/stderr logging; long-runners (`loop`, `live`) run under systemd/cron and are queryable via `status`.
+- **Thin CLI, fat core**: the CLI is a thin wrapper over the `crucible/` Python package — the same functions are callable programmatically (by an agent or by tests), not only through the shell.
 
 ---
 
@@ -129,7 +172,9 @@ fitness(strategy_candidate):
 | Component | Choice | Rationale |
 |---|---|---|
 | Language | Python 3.11+ | Ecosystem |
-| Execution loop core | **freqtrade** | Crypto-native, backtest/hyperopt/dry-run/live in one system, 51.6k★ active, GPL-3.0 |
+| CLI framework | **Typer** | Type-hint based, clean `--help`/`--json`, easy subcommands; thin wrapper over the core package (audit at feat time) |
+| Config | **YAML + Pydantic** | YAML is comment-friendly for fine-tuning rationale; Pydantic gives schema validation + fail-fast (no silent fallback) |
+| Execution loop core | **freqtrade** | Crypto-native, backtest/hyperopt/dry-run/live in one system, 51.6k★ active, GPL-3.0; its JSON config is generated from crucible YAML |
 | Data / exchange access | freqtrade built-in (ccxt) + Binance official API | First-party OHLCV / funding rate / markPrice |
 | Large-scale parameter scan | freqtrade hyperopt (MVP) → add vectorbt when needed | Use built-in for MVP; avoid premature complexity |
 | CPCV / purge | skfolio or timeseriescv | Information-leakage protection |
@@ -161,32 +206,31 @@ Signal timestamp and trigger conditions · expected price vs. actual fill price 
 ## 11. Directory Structure
 
 ```
-/Users/hang/AI/trading/
-├── architecture-design.md             # this document
-├── crypto-algo-loop-best-practices.md # research report
-├── pyproject.toml / requirements.txt
-├── config/
-│   ├── config.dryrun.json             # paper trading
-│   └── config.live.json               # live capital (secrets via env vars, not committed)
-├── data/                              # OHLCV / funding cache (gitignore)
-├── strategies/                        # strategy families (freqtrade IStrategy)
-│   └── trend_following_v1.py
-├── research/
-│   ├── walk_forward.py                # rolling walk-forward harness
-│   ├── cpcv.py                        # CPCV + purge + embargo
-│   ├── deflated_sharpe.py             # DSR
-│   ├── pbo.py                         # PBO
-│   ├── monte_carlo.py                 # path risk
-│   └── fitness.py                     # Section 4 fitness function
-├── validation/
-│   └── admission_gate.py              # Section 6 admission gate (6 hard criteria)
-├── registry/                          # survivor registry (MLflow / SQLite)
-├── journal/                           # trade log persistence
-├── live/
-│   └── guardrails.py                  # Section 7 guardrails (position / leverage / ladder / circuit breaker)
-├── ops/
-│   └── kill_switch.py                 # heartbeat + disconnect-cancel
-└── mlruns/                            # MLflow (gitignore)
+/Users/hang/AI/trading/                # repo: crucible
+├── README.md  CLAUDE.md  pyproject.toml
+├── config/                            # ALL tunables (config-over-code) — YAML, versioned
+│   ├── base.yaml                      # defaults: data, cost model, validation thresholds, fitness weights, guardrails
+│   ├── profiles/
+│   │   ├── dryrun.yaml                # paper overrides
+│   │   └── live.yaml                  # live overrides (secrets referenced by env-var NAME; none inside)
+│   ├── strategies/
+│   │   └── trend_following.yaml       # params + hyperopt search space for one family
+│   └── freqtrade/                     # generated freqtrade JSON (merged from the above; gitignored if it embeds secrets)
+├── crucible/                          # the library (fat core; CLI is a thin wrapper over this)
+│   ├── cli.py                         # Typer entrypoint: data/backtest/optimize/validate/paper/live/loop/report/status
+│   ├── config.py                      # Pydantic schema + layered loader (base<profile<strategy<--set)
+│   ├── data/                          # data pull + point-in-time + cost model
+│   ├── strategies/                    # strategy LOGIC (freqtrade IStrategy); params injected from config
+│   │   └── trend_following.py
+│   ├── research/                      # walk_forward · cpcv · deflated_sharpe · pbo · monte_carlo · fitness (§4)
+│   ├── validation/admission_gate.py   # §6 admission gate (6 hard criteria)
+│   ├── live/guardrails.py             # §7 guardrails (position / leverage / ladder / circuit breaker)
+│   ├── ops/kill_switch.py             # heartbeat + disconnect-cancel
+│   ├── journal/                       # trade log writer (§10 schema)
+│   └── registry/                      # survivor registry (MLflow / SQLite)
+├── docs/  scripts/  infra/  .githooks/  .claude/skills/
+├── data/  mlruns/  journal/  registry/  # gitignored runtime artifacts
+└── .progress/                         # local Chinese working notes (gitignored)
 ```
 
 ---
@@ -203,16 +247,17 @@ Signal timestamp and trigger conditions · expected price vs. actual fill price 
 
 ## 13. Phase 0 MVP Delivery Checklist (Start Here After Confirmation)
 
-1. Environment: Python venv + install freqtrade + MLflow + skfolio.
-2. Data: freqtrade pulls BTC/USDT spot + perpetual historical OHLCV + funding (several years).
-3. Strategy family ①: **trend following** (EMA crossover + ATR stop-loss + volatility-based sizing) as the first "species" (simplest; hardest literature-backed edge direction).
-4. `research/walk_forward.py`: rolling walk-forward harness, reports concatenated OOS only.
-5. `research/deflated_sharpe.py` + `pbo.py`: minimum viable version, attached to walk-forward output.
-6. `research/fitness.py`: implement Section 4 fitness function.
-7. MLflow: log params / metrics / code hash / random seed for every backtest run.
-8. `journal/`: trade log schema persisted to disk.
-9. freqtrade `dry-run`: attach strategy family ① and run on paper.
-10. After end-to-end run, produce first "crucible report": candidate count, survivor count, survivor fitness ranking.
+1. Skeleton: `pyproject.toml` + `crucible/` package + **Typer CLI** (`crucible/cli.py`) with command stubs + **Pydantic config schema & layered loader** (`crucible/config.py`) + `config/base.yaml`. Install freqtrade + MLflow + skfolio + typer + pydantic + pyyaml.
+2. Config-first: define `config/base.yaml` (data, cost model, validation thresholds, fitness weights, guardrails) and `config/strategies/trend_following.yaml` (params + search space) — **all tunables here, none hardcoded**. freqtrade JSON generated from these.
+3. Data: `crucible data pull` → BTC/USDT spot + perpetual historical OHLCV + funding (several years).
+4. Strategy family ①: **trend following** (EMA crossover + ATR stop-loss + volatility-based sizing) — logic in `crucible/strategies/trend_following.py`, **params read from config**.
+5. `crucible/research/walk_forward.py`: rolling walk-forward harness, reports concatenated OOS only (thresholds from config).
+6. `crucible/research/deflated_sharpe.py` + `pbo.py`: minimum viable, attached to walk-forward output.
+7. `crucible/research/fitness.py`: implement the §4 fitness (weights/penalties from config).
+8. MLflow: log resolved-config + params / metrics / code hash / random seed for every run.
+9. `crucible/journal/`: trade log schema persisted to disk.
+10. `crucible paper`: attach strategy family ① and run dry-run.
+11. `crucible report`: produce first "crucible report" — candidate count, survivor count, survivor fitness ranking (JSON + human output).
 
 > Funding-rate harvesting (market-neutral) is strategy family ②, added in Phase 1 — it requires perpetuals + hedging, more complex than trend following; excluded from MVP.
 
@@ -223,6 +268,8 @@ Signal timestamp and trigger conditions · expected price vs. actual fill price 
 **Locked**:
 - ✅ **Edge ramp-up order**: Phase 0 starts with trend following (directional); funding-rate harvesting (structural) joins in Phase 1.
 - ✅ **Phase 2 uses perpetual contracts**: to support 2–3x leverage / short selling / funding-rate capture (trade-off: liquidation + funding risk; §7 guardrails must be in place).
+- ✅ **Config-over-code**: all tunables in versioned YAML, schema-validated (Pydantic), no redeploy to fine-tune (§2.5.1).
+- ✅ **CLI-first**: single `crucible` Typer CLI over a fat core package; non-interactive, `--json`, deterministic exit codes — server- and agent-friendly (§2.5.2).
 
 **Open / Risks**:
 - **DSR/PBO thresholds**: initial values need calibration with real data in Phase 1; may be too loose or too tight.
