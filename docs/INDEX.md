@@ -1,10 +1,11 @@
-# Docs Index / 文档导航
+# Docs Index
 
-| Doc | EN | 中文 | Description |
-|---|---|---|---|
-| [architecture-design.md](./architecture-design.md) | — | ✅ | System blueprint: two-layer self-iteration, fitness function, validation gates, admission criteria, guardrails, Phase 0 checklist. 架构方案。 |
-| [best-practices-research.md](./best-practices-research.md) | — | ✅ | Sourced industry best-practice research with source-audit credibility ratings. 业界最佳实践调研(信源审计)。 |
+| Doc | Description |
+|---|---|
+| [architecture-design.md](./architecture-design.md) | System blueprint: two-layer self-iteration, fitness function, validation gates, admission criteria, guardrails, Phase 0 checklist. |
+| [best-practices-research.md](./best-practices-research.md) | Sourced industry best-practice research with source-audit credibility ratings. |
+| [live-acceptance-smoke.md](./live-acceptance-smoke.md) | Real-environment acceptance smoke methodology (trading-adapted edge probes). |
+| [lessons/README.md](./lessons/README.md) | Lessons RAG tag map (load before working; read matched `L-NNN` only). |
 
-> Note: the two design docs are currently in Chinese (written during the design phase).
-> Per the project language policy (English for committed docs), they are pending translation to English.
-> Local-only progress notes live in `.progress/` (Chinese, gitignored).
+> Language policy: everything under `docs/` is **English**. Chinese working notes / original drafts live in
+> `.progress/` (gitignored, local only). Requirement subfolders go in `docs/{designs,enh,bug}/{ID}/`.

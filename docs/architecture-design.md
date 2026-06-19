@@ -1,231 +1,230 @@
-# 加密波段量化炼蛊机 — 架构方案
+# Crypto Swing Algo Culling Machine — Architecture Design
 
-> 版本:2026-06-19 · 状态:**待用户确认 → 确认后进 Phase 0 编码**
-> 配套:决策台账见项目记忆;证据见 `/Users/hang/AI/trading/crypto-algo-loop-best-practices.md`
-> 一句话定位:一台达尔文式策略筛选机 —— 持续淘汰过拟合垃圾,只让验证存活的真货毕业拿真钱。
-
----
-
-## 1. 设计哲学(锁定)
-
-- **不是「找策略」,是「运营淘汰机制」。** 价值在淘汰机制本身可信,不在某一个策略。
-- **核心-卫星杠铃**:核心仓已 BTC 定投/分批(稳);本机器是 ~1% 实验卫星仓(博高赔率)。真实交付物 = 可信策略 + 不自欺的机器,不是这 1% 的钱。
-- **fitness 决定一切**:机器朝评分爬山。评分设成「收益」→ 进化出骗子;设成「先存活,再风险调整最优」→ 进化出真货。
-- **收益是结果不是入口**:年化 100%+ 是「验证过的 edge × 杠杆」的期望产出,**绝不当准入门槛**。
-- **分阶段**:先纸面跑通逻辑,再投真金白银。
+> Version: 2026-06-19 · Status: **Pending user confirmation → Phase 0 coding begins after confirmation**
+> Companion: decision log in project memory; evidence in `/Users/hang/AI/trading/crypto-algo-loop-best-practices.md`
+> One-line positioning: A Darwinian strategy-screening machine — continuously culling overfitting junk, letting only validated survivors graduate to real capital.
 
 ---
 
-## 2. 系统总架构
+## 1. Design Philosophy (Locked)
+
+- **Not "find a strategy" — operate an elimination mechanism.** The value lies in the credibility of the elimination mechanism itself, not in any single strategy.
+- **Core-satellite barbell**: the core sleeve already holds BTC DCA/laddered buys (stable); this machine is the ~1% experimental satellite sleeve (high-odds bets). The real deliverable = credible strategies + a machine that doesn't deceive itself — not the 1% capital.
+- **Fitness determines everything**: the machine hill-climbs toward its score. Set the score to "returns" → evolves cheaters; set it to "survive first, then risk-adjusted optimum" → evolves genuine edge.
+- **Returns are an output, not an entry criterion**: 100%+ annualized is the expected output of "validated edge × leverage" — **never used as an admission gate**.
+- **Phased**: logic proven on paper first, real capital second.
+
+---
+
+## 2. Overall System Architecture
 
 ```
-   灵感漏斗(TradingView/论文/论坛)──全是「待证伪假设」,不是成品
+   Inspiration funnel (TradingView / papers / forums) — all "hypotheses to falsify", not finished products
                     │
                     ▼
- ┌──────────────────── 外循环(慢·人播种假设)────────────────────┐
- │  交易日志失败归因 → 你提新 edge 假设/新策略族 → 喂入内循环        │
+ ┌──────────────────── Outer loop (slow · human seeds hypotheses) ────────────────────┐
+ │  Trade-log failure attribution → you propose new edge hypothesis / strategy family → feed into inner loop  │
  └───────────────────────────────┬──────────────────────────────┘
                                  ▼
- ┌──────────────────── 内循环(快·全自动)──────────────────────┐
- │  ① 生成候选(参数变体) → ② 验证关卡(杀过拟合)                  │
- │       ▲                            │                            │
- │       └──── ④ 变异/重组 ◀── ③ 选择(留幸存者,按 fitness) ──┘   │
+ ┌──────────────────── Inner loop (fast · fully automated) ──────────────────────┐
+ │  ① Generate candidates (parameter variants) → ② Validation gates (kill overfitting)  │
+ │       ▲                            │                                            │
+ │       └──── ④ Mutate/recombine ◀── ③ Select (keep survivors, rank by fitness) ──┘  │
  └───────────────────────────────┬──────────────────────────────┘
-                                 │ 幸存者
+                                 │ Survivors
                                  ▼
-        ┌──── 准入考(6 条硬门槛全过) ────┐  ── 不过 ──▶ 回炉/淘汰
+        ┌──── Admission gate (all 6 hard criteria passed) ────┐  ── fail ──▶ rework / eliminate
                                  ▼
-                  纸面 forward(dry-run)
+                  Paper forward (dry-run)
                                  ▼
-                  真钱卫星仓(全自动上线 + 阶梯放量 + 硬护栏)
+                  Live satellite sleeve (fully automated launch + laddered sizing + hard guardrails)
                                  ▼
-                  交易日志 + MLflow 追踪 → 归因 → 回外循环
+                  Trade log + MLflow tracking → attribution → back to outer loop
 ```
 
-数据层、回测层贯穿始终;金库式 holdout 全程锁死,只在准入考前看一次。
+Data layer and backtest layer run throughout; vault-style holdout is locked at all times — opened only once before the admission gate.
 
 ---
 
-## 3. 自迭代双层循环(机制核心)
+## 3. Self-Iterating Two-Layer Loop (Mechanism Core)
 
-### 内循环(全自动,机器几小时跑完)
-在**一个策略族内**搜索参数空间:生成数百~数千组参数变体 → 每组过验证关卡 → 杀过拟合 → 在幸存者邻域继续搜(= 优化)。引擎:freqtrade hyperopt / 遗传搜索。
+### Inner Loop (fully automated, machine completes in hours)
+Searches the parameter space **within a single strategy family**: generates hundreds to thousands of parameter variants → each passes the validation gates → kills overfitting → continues searching in the neighborhood of survivors (= optimization). Engine: freqtrade hyperopt / genetic search.
 
-### 外循环(人播种,低频)
-内循环只能磨细已知方向;新 edge 需人注入。驱动力 = **交易日志失败归因**(机器告诉你「趋势策略在震荡市连环止损」→ 你提「加震荡 regime 闸门」假设 → 喂回内循环)。灵感漏斗在此进入,当假设不当成品。
+### Outer Loop (human-seeded, low frequency)
+The inner loop can only refine known directions; new edge requires human injection. Driver = **trade-log failure attribution** (the machine tells you "trend strategy triggered chain stop-losses in a ranging market" → you propose "add ranging-regime gate" hypothesis → feed back into inner loop). The inspiration funnel enters here — treated as hypotheses, not finished products.
 
-### 保命纪律(让自迭代不自欺)
-1. **金库式 holdout**:留一段历史锁死,内循环永不触碰,仅准入考前看一次,看过作废。
-2. **全局试验预算 N**:跨所有迭代累计计数,DSR 用全局 N 去运气(不是单轮 N)。
-3. **前推纪律**:真 OOS 永远来自未来新数据;每次重优化后必须经历纸面 forward 再放量。
+### Survival Discipline (keeping self-iteration honest)
+1. **Vault-style holdout**: one segment of history locked permanently; the inner loop never touches it; opened only once before the admission gate — once seen, invalidated.
+2. **Global trial budget N**: cumulative count across all iterations; DSR uses global N to adjust for luck (not per-round N).
+3. **Forward discipline**: true OOS always comes from future new data; after every re-optimization a paper forward period must be completed before scaling up.
 
 ---
 
-## 4. Fitness 函数(全局命门)
+## 4. Fitness Function (The Global Linchpin)
 
 ```
-fitness(策略候选):
-  # 硬门:任一不过 → fitness = 0(杀)
+fitness(strategy_candidate):
+  # Hard gates: any failure → fitness = 0 (kill)
   if not walk_forward_OOS_pass:        return 0
-  if DSR(全局N) not 显著:              return 0
-  if PBO > 阈值:                       return 0
-  if net_edge(扣费+滑点+funding) <= 0: return 0
-  # 过门后打分
-  score = Calmar_OOS                   # 年化÷最大回撤,同时奖励收益与控回撤
-  score -= 参数不稳定惩罚               # 尖峰扣分,高原加分
-  score -= 高换手惩罚                   # 成本侵蚀扣分
+  if DSR(global_N) not significant:    return 0
+  if PBO > threshold:                  return 0
+  if net_edge(after fees+slippage+funding) <= 0: return 0
+  # Score after passing gates
+  score = Calmar_OOS                   # annualized / max drawdown — rewards both return and drawdown control
+  score -= parameter_instability_penalty  # spiky peaks penalized, plateaus rewarded
+  score -= high_turnover_penalty          # cost erosion penalized
   return score
 ```
 
-**机器朝这个分爬山,而非朝收益爬。** 这是全自动机器不进化成骗子的根本保证。
+**The machine hill-climbs toward this score, not toward returns.** This is the fundamental guarantee that a fully automated machine does not evolve into a cheater.
 
 ---
 
-## 5. 验证关卡(可执行定义 + 初始阈值)
+## 5. Validation Gates (Executable Definitions + Initial Thresholds)
 
-> 阈值是起点,Phase 1 用历史数据校准后微调。
+> Thresholds are starting points; fine-tune after calibration with historical data in Phase 1.
 
-| 关卡 | 方法 | 初始阈值 | 挂载 |
+| Gate | Method | Initial Threshold | Mounted On |
 |---|---|---|---|
-| 无泄漏 | look-ahead 自检 | 必过 | freqtrade lookahead-analysis |
-| 样本外 | walk-forward(anchored/rolling) | OOS ≥ IS×70% | 自建 harness 包 freqtrade |
-| 去运气 | Deflated Sharpe(全局 N) | DSR > 0 且显著 | 自实现 |
-| 防过拟合 | PBO(CSCV) | PBO < 0.5(越低越好) | skfolio/自实现 |
-| 信息泄漏 | CPCV + purge + embargo | embargo ~1% | timeseriescv/skfolio |
-| 参数稳健 | 高原 vs 尖峰(heatmap) | 邻域±10%绩效相近 | 自建 |
-| 路径风险 | Monte Carlo / block bootstrap | 5%分位终值>0,爆仓<1% | 自建 |
-| 净 edge | 真实成本模型 | 扣费+滑点+funding 后>0 | freqtrade 费用模型 |
+| No lookahead | look-ahead self-check | must pass | freqtrade lookahead-analysis |
+| Out-of-sample | walk-forward (anchored/rolling) | OOS ≥ IS×70% | custom harness wrapping freqtrade |
+| Luck-adjusted | Deflated Sharpe (global N) | DSR > 0 and significant | custom implementation |
+| Anti-overfitting | PBO (CSCV) | PBO < 0.5 (lower is better) | skfolio / custom implementation |
+| Information leakage | CPCV + purge + embargo | embargo ~1% | timeseriescv / skfolio |
+| Parameter robustness | plateau vs. spike (heatmap) | ±10% neighborhood performs similarly | custom build |
+| Path risk | Monte Carlo / block bootstrap | 5th-percentile terminal value > 0, ruin < 1% | custom build |
+| Net edge | realistic cost model | > 0 after fees + slippage + funding | freqtrade cost model |
 
 ---
 
-## 6. 准入考(Phase1→Phase2,6 条硬门槛全过才上真钱)
+## 6. Admission Gate (Phase 1 → Phase 2: all 6 hard criteria required before live capital)
 
-| # | 条件 | 门槛 |
+| # | Condition | Criterion |
 |---|---|---|
-| ① | 过完整验证关卡 | 第 5 节全部 |
-| ② | 样本外一致 | OOS ≥ IS×70% |
-| ③ | 纸面站得住 | 1 月 dry-run 不崩 + 对账偏差在阈值内 |
-| ④ | 风险调整达标 | OOS Calmar ≥ 地板值(非收益地板) |
-| ⑤ | 净 edge 为正 | 扣全成本后>0 |
-| ⑥ | 容量够 | BTC 大流动性,天然满足 |
+| ① | Passes all validation gates | Section 5 in full |
+| ② | Out-of-sample consistency | OOS ≥ IS×70% |
+| ③ | Paper trading holds up | 1-month dry-run without collapse + reconciliation deviation within threshold |
+| ④ | Risk-adjusted hurdle met | OOS Calmar ≥ floor value (not a return floor) |
+| ⑤ | Positive net edge | > 0 after all costs |
+| ⑥ | Sufficient capacity | BTC high liquidity — naturally satisfied |
 
-**注意:无「年化≥X」门槛 —— 故意的,防止重开过拟合闸门。**
-
----
-
-## 7. 自动上线护栏(全自动上线的代偿,不可省)
-
-1. **验证关卡 = 自动上线唯一闸门**,没过的自动化碰都不碰。
-2. **单策略仓位硬上限** ≤ 卫星仓 25–30%;**并发策略数上限**(初始 ≤3)。
-3. **杠杆硬上限** ≤2–3x(由 -50% 回撤容忍反推)。
-4. **阶梯放量**:首单最小手数 → 实盘与回测对账一致 → 才自动加到目标仓位。
-5. **卫星仓 -50% 全停熔断** + 单策略三条自动下线(回撤超阈 / drift / 绩效衰减)。
-6. **运维安全**:API key 禁提币 + IP 白名单 + `newClientOrderId` 幂等 + 自建 kill switch(交易所不提供断连撤单)+ 心跳告警(Telegram)。
+**Note: no "annualized ≥ X" criterion — intentional; prevents reopening the overfitting gate.**
 
 ---
 
-## 8. 技术栈定稿(附理由)
+## 7. Auto-Launch Guardrails (Compensation for Full Automation — Non-Negotiable)
 
-| 环节 | 选型 | 理由 |
+1. **Validation gates = the sole auto-launch gate**: nothing that hasn't passed is touched by automation.
+2. **Hard position cap per strategy** ≤ satellite sleeve 25–30%; **concurrent strategy count cap** (initial ≤3).
+3. **Hard leverage cap** ≤2–3x (back-calculated from -50% drawdown tolerance).
+4. **Laddered sizing**: first trade at minimum lot → live vs. backtest reconciliation consistent → then auto-scale to target position.
+5. **Satellite sleeve -50% full-stop circuit breaker** + per-strategy three auto-delisting triggers (drawdown exceeds threshold / drift / performance decay).
+6. **Ops security**: API key withdrawal disabled + IP whitelist + `newClientOrderId` idempotency + custom kill switch (exchange provides no disconnect-cancel) + heartbeat alert (Telegram).
+
+---
+
+## 8. Final Tech Stack (With Rationale)
+
+| Component | Choice | Rationale |
 |---|---|---|
-| 语言 | Python 3.11+ | 生态 |
-| 执行闭环核心 | **freqtrade** | 加密原生,回测/hyperopt/dry-run/实盘一体,51.6k★活跃,GPL-3.0 |
-| 数据/交易所接入 | freqtrade 内置(ccxt)+ Binance 官方 API | 一手 K线/资金费/markPrice |
-| 参数大规模扫描 | freqtrade hyperopt(MVP)→ 需要时加 vectorbt | MVP 先用内置,避免过早引入复杂度 |
-| CPCV/purge | skfolio 或 timeseriescv | 信息泄漏防护 |
-| DSR/PBO | 自实现(~百行) | 无成熟开箱库,核心逻辑简单 |
-| 实验追踪 | MLflow | 每次回测=一次 run,记参数/指标/code hash/种子,可复现 |
-| 策略注册表 | MLflow Model Registry(或 SQLite) | 幸存者版本化、阶段流转 |
-| 告警 | Telegram(freqtrade 内置) | 你已有 telegram-mcp |
+| Language | Python 3.11+ | Ecosystem |
+| Execution loop core | **freqtrade** | Crypto-native, backtest/hyperopt/dry-run/live in one system, 51.6k★ active, GPL-3.0 |
+| Data / exchange access | freqtrade built-in (ccxt) + Binance official API | First-party OHLCV / funding rate / markPrice |
+| Large-scale parameter scan | freqtrade hyperopt (MVP) → add vectorbt when needed | Use built-in for MVP; avoid premature complexity |
+| CPCV / purge | skfolio or timeseriescv | Information-leakage protection |
+| DSR / PBO | Custom implementation (~100 lines) | No mature off-the-shelf library; core logic is simple |
+| Experiment tracking | MLflow | Each backtest = one run; records params / metrics / code hash / seed; reproducible |
+| Strategy registry | MLflow Model Registry (or SQLite) | Survivor versioning, stage transitions |
+| Alerts | Telegram (freqtrade built-in) | telegram-mcp already available |
 
-> backtrader 已弃维(最后真实提交约 3 年前),不采用。NautilusTrader/LEAN 作为「回测实盘同引擎一致性更强」的未来升级备选,MVP 不引入。
-
----
-
-## 9. 数据层方案
-
-- **来源**:Binance 官方 API 一手(spot + USDⓈ-M 永续);K线 + fundingRate + markPrice。
-- **幸存者偏差**:BTC 单标的起步天然规避;未来扩多币时,补含下架交易对的归档数据。
-- **质量**:point-in-time(信号只用已收盘 K 线);用 markPrice 而非 lastPrice 做触发,过滤单所插针。
-- **成本模型**:taker/maker 费 + 滑点 + 永续 8h 资金费,全部进回测。
-- **本地缓存**:freqtrade `download-data`,按时间框存 parquet。
+> backtrader is unmaintained (last real commit ~3 years ago) — not adopted. NautilusTrader / LEAN are future upgrade candidates ("stronger backtest-live engine consistency") — not introduced in MVP.
 
 ---
 
-## 10. 交易日志规约(每笔必落,供归因)
+## 9. Data Layer Design
 
-信号时间戳与触发条件 · 预期价 vs 实际成交价(→实际滑点)· 订单类型与状态机轨迹 · 费用 · 仓位规模 · 当时市场状态快照(波动率/价差/趋势 regime 标签)· 策略版本 hash · 决策依据指标值。**关键:逐笔留「预期 vs 实际」,才能区分策略失效还是执行失效。**
+- **Source**: Binance official API first-party (spot + USDⓈ-M perpetuals); OHLCV + fundingRate + markPrice.
+- **Survivorship bias**: single-asset BTC start naturally avoids it; when expanding to multiple assets, supplement with archived data including delisted pairs.
+- **Quality**: point-in-time (signals use only fully closed candles); use markPrice rather than lastPrice for triggers — filters single-exchange wick spikes.
+- **Cost model**: taker/maker fees + slippage + perpetual 8h funding rate — all included in backtest.
+- **Local cache**: freqtrade `download-data`, stored as parquet by timeframe.
 
 ---
 
-## 11. 目录结构
+## 10. Trade Log Schema (Per-Trade Required — For Attribution)
+
+Signal timestamp and trigger conditions · expected price vs. actual fill price (→ realized slippage) · order type and state-machine trace · fees · position size · market-state snapshot at the time (volatility / spread / trend regime label) · strategy version hash · indicator values that drove the decision. **Key: per-trade "expected vs. actual" is what distinguishes strategy failure from execution failure.**
+
+---
+
+## 11. Directory Structure
 
 ```
 /Users/hang/AI/trading/
-├── architecture-design.md            # 本文档
-├── crypto-algo-loop-best-practices.md # 调研报告
+├── architecture-design.md             # this document
+├── crypto-algo-loop-best-practices.md # research report
 ├── pyproject.toml / requirements.txt
 ├── config/
-│   ├── config.dryrun.json            # 纸面
-│   └── config.live.json              # 真钱(密钥走环境变量,不入库)
-├── data/                             # K线/funding 缓存(gitignore)
-├── strategies/                       # 策略族(freqtrade IStrategy)
+│   ├── config.dryrun.json             # paper trading
+│   └── config.live.json               # live capital (secrets via env vars, not committed)
+├── data/                              # OHLCV / funding cache (gitignore)
+├── strategies/                        # strategy families (freqtrade IStrategy)
 │   └── trend_following_v1.py
 ├── research/
-│   ├── walk_forward.py               # 滚动前推 harness
-│   ├── cpcv.py                       # CPCV + purge + embargo
-│   ├── deflated_sharpe.py            # DSR
-│   ├── pbo.py                        # PBO
-│   ├── monte_carlo.py                # 路径风险
-│   └── fitness.py                    # 第4节 fitness 函数
+│   ├── walk_forward.py                # rolling walk-forward harness
+│   ├── cpcv.py                        # CPCV + purge + embargo
+│   ├── deflated_sharpe.py             # DSR
+│   ├── pbo.py                         # PBO
+│   ├── monte_carlo.py                 # path risk
+│   └── fitness.py                     # Section 4 fitness function
 ├── validation/
-│   └── admission_gate.py             # 第6节准入考(6条硬门槛)
-├── registry/                         # 幸存者注册表(MLflow / SQLite)
-├── journal/                          # 交易日志落盘
+│   └── admission_gate.py              # Section 6 admission gate (6 hard criteria)
+├── registry/                          # survivor registry (MLflow / SQLite)
+├── journal/                           # trade log persistence
 ├── live/
-│   └── guardrails.py                 # 第7节护栏(仓位/杠杆/阶梯/熔断)
+│   └── guardrails.py                  # Section 7 guardrails (position / leverage / ladder / circuit breaker)
 ├── ops/
-│   └── kill_switch.py                # 心跳 + 断连撤单
-└── mlruns/                           # MLflow(gitignore)
+│   └── kill_switch.py                 # heartbeat + disconnect-cancel
+└── mlruns/                            # MLflow (gitignore)
 ```
 
 ---
 
-## 12. 三阶段路线
+## 12. Three-Phase Roadmap
 
-| 阶段 | 内容 | 退出/毕业线 |
+| Phase | Content | Exit / Graduation Criterion |
 |---|---|---|
-| **Phase 0** 搭机器(~1–2 周) | 数据→回测→walk-forward→纸面 跑通,单策略族 | 跑出第一个可测闭环 |
-| **Phase 1** 纸面自迭代(时间盒 **1 个月**) | 全自动炼蛊,统计力靠历史 walk-forward/CPCV,1 月纸面做 sanity check | 有≥1 策略过准入考 → Phase2;**一个都没有 → 复盘是方法问题还是 edge 够不到** |
-| **Phase 2** 真钱(1% 卫星仓) | 全自动上线 + 阶梯放量 + 硬护栏 | **卫星仓 -50% 钱盒 → 全停复盘** |
+| **Phase 0** Build the machine (~1–2 weeks) | Data → backtest → walk-forward → paper — end-to-end runnable, single strategy family | First complete closed loop runs through |
+| **Phase 1** Paper self-iteration (time-box **1 month**) | Fully automated crucible; statistical power from historical walk-forward/CPCV; 1-month paper as sanity check | ≥1 strategy passes admission gate → Phase 2; **zero pass → post-mortem: methodology problem or edge genuinely unreachable** |
+| **Phase 2** Live capital (1% satellite sleeve) | Fully automated launch + laddered sizing + hard guardrails | **Satellite sleeve money-box -50% → full stop + post-mortem** |
 
 ---
 
-## 13. Phase 0 MVP 落地清单(确认后从这里开干)
+## 13. Phase 0 MVP Delivery Checklist (Start Here After Confirmation)
 
-1. 环境:Python venv + 安装 freqtrade + MLflow + skfolio。
-2. 数据:freqtrade 拉 BTC/USDT 现货 + 永续历史 K线 + funding(几年)。
-3. 策略族 ①:**趋势跟踪**(EMA 交叉 + ATR 止损 + 波动率仓位)作第一个「物种」(最简、文献 edge 最硬的方向)。
-4. `research/walk_forward.py`:滚动前推 harness,只上报拼接 OOS。
-5. `research/deflated_sharpe.py` + `pbo.py`:最小可用版,挂到 walk-forward 输出。
-6. `research/fitness.py`:实现第 4 节 fitness。
-7. MLflow:每次回测记 params/metrics/code hash/随机种子。
-8. `journal/`:交易日志 schema 落盘。
-9. freqtrade `dry-run`:把策略族 ① 挂上纸面跑起来。
-10. 跑通后产出第一份「炼蛊报告」:候选数、存活数、幸存者 fitness 排名。
+1. Environment: Python venv + install freqtrade + MLflow + skfolio.
+2. Data: freqtrade pulls BTC/USDT spot + perpetual historical OHLCV + funding (several years).
+3. Strategy family ①: **trend following** (EMA crossover + ATR stop-loss + volatility-based sizing) as the first "species" (simplest; hardest literature-backed edge direction).
+4. `research/walk_forward.py`: rolling walk-forward harness, reports concatenated OOS only.
+5. `research/deflated_sharpe.py` + `pbo.py`: minimum viable version, attached to walk-forward output.
+6. `research/fitness.py`: implement Section 4 fitness function.
+7. MLflow: log params / metrics / code hash / random seed for every backtest run.
+8. `journal/`: trade log schema persisted to disk.
+9. freqtrade `dry-run`: attach strategy family ① and run on paper.
+10. After end-to-end run, produce first "crucible report": candidate count, survivor count, survivor fitness ranking.
 
-> 资金费率收割(市场中性)作为策略族 ②,Phase 1 再加 —— 它需要永续 + 对冲,比趋势复杂,不放进 MVP。
+> Funding-rate harvesting (market-neutral) is strategy family ②, added in Phase 1 — it requires perpetuals + hedging, more complex than trend following; excluded from MVP.
 
 ---
 
-## 14. 已锁决策 / 未决项 / 风险
+## 14. Locked Decisions / Open Items / Risks
 
-**已锁**:
-- ✅ **edge 起步顺序**:Phase 0 先做趋势跟踪(directional);资金费率收割(structural)Phase 1 加入。
-- ✅ **Phase 2 用永续合约**:以支持 2–3x 杠杆 / 做空 / 吃资金费(代价:强平 + funding 风险,§7 护栏必须到位)。
+**Locked**:
+- ✅ **Edge ramp-up order**: Phase 0 starts with trend following (directional); funding-rate harvesting (structural) joins in Phase 1.
+- ✅ **Phase 2 uses perpetual contracts**: to support 2–3x leverage / short selling / funding-rate capture (trade-off: liquidation + funding risk; §7 guardrails must be in place).
 
-**未决 / 风险**:
-- **DSR/PBO 阈值**:初始值需 Phase 1 用真实数据校准,可能偏松或偏紧。
-- **1 月时间盒的统计风险**:已用历史 walk-forward 补统计力,但纸面 1 月仍是薄样本,毕业的幸存者要警惕「侥幸过关」。
-- **交易所账号**:Phase 2 需要 Binance(或替代)API key,届时按运维安全清单配置。
-```
+**Open / Risks**:
+- **DSR/PBO thresholds**: initial values need calibration with real data in Phase 1; may be too loose or too tight.
+- **Statistical risk of the 1-month time-box**: historical walk-forward supplements statistical power, but 1 month of paper trading is still a thin sample — survivors that graduate should be flagged for potential "lucky pass."
+- **Exchange account**: Phase 2 requires a Binance (or alternative) API key; configure per ops-security checklist at that time.
