@@ -3,6 +3,14 @@
 Darwinian strategy-culling machine for crypto swing trading. See `docs/architecture-design.md`
 for the full blueprint and `docs/best-practices-research.md` for the sourced research behind it.
 
+## 0. Read before working — lessons map (RAG, mandatory, saves context)
+
+Before any work, load **only** `docs/lessons/README.md` (a lightweight RAG tag map). Match current-task
+keywords against the tags:
+- **Hit** → read that `L-NNN` (usually 1–3); avoid a gotcha already paid for.
+- **No hit** → don't open L files; just proceed.
+- **New gotcha** → after fixing, add an `L-NNN` + one map row (incrementing, no reuse, no gaps).
+
 ## Language policy (strict)
 
 - **Code, comments, and commit messages: English only.** No Chinese in committed code or commits.
@@ -23,6 +31,27 @@ for the full blueprint and `docs/best-practices-research.md` for the sourced res
 - Python 3.11+. Execution loop on `freqtrade`; validation stats custom (`research/`); experiment tracking via MLflow.
 - Keep authoring and review in separate passes; verify before claiming done.
 - Data, `mlruns/`, `journal/`, `registry/` are gitignored (regenerable / large / sensitive).
+
+## Selection / research (first-party source audit)
+
+When recommending/selecting any library, framework, or data source, **run the first-party check on the
+first answer** — don't wait to be asked to fact-check. Run `bash scripts/source-audit.sh owner/repo`
+(or `gh api repos/{o}/{r}` → `archived` / `pushed_at` / stars; `users/{login}` → followers/created).
+Star-inflation signals (new-account ≈ new-repo, low followers + high star rate, single contributor,
+commits crammed into days) → ⚠️ pollution warning + heavy downweight. High stars ≠ trustworthy.
+Aggregator/directory sites are README mirrors, not independent sources.
+
+## Verification (live acceptance smoke)
+
+Static green ≠ live green. Before claiming a live/exec change works, run real-environment checks per
+`docs/live-acceptance-smoke.md` (reconnect / duplicate-order / outage / timeout / reconciliation probes).
+Self-verify first; deterministic → auto-assert; uncertain → manual checklist, never fake-green.
+Caught a bug → distill into an `L-NNN`.
+
+## Infra config (single source of truth)
+
+After changing any service config (account / deploy / quota / cost-gate / API scopes) → immediately update
+the matching section of `infra/<SERVICE>.md`. **Identifiers only; credentials never enter these files** (see `infra/README.md`).
 
 ## Decision ledger (locked — see architecture-design.md for full context)
 
