@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 数据与产物(绝不入库 — 体积大且可重新下载)
+data/
+mlruns/
+journal/
+registry/
+*.parquet
+*.feather
+*.csv
+*.sqlite
+*.db
+
+# 密钥与实盘配置(绝不入库 — 资金安全红线)
+.env
+.env.*
+*.key
+*.pem
+config/config.live.json
+**/secrets*
+**/*credential*
+
+# OMC / 工具状态
+.omc/
+
+# OS / 编辑器
+.DS_Store
+.idea/
+.vscode/
