@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# crucible pre-commit secret guard.
+# Blocks secrets and sensitive files from entering history. Best-effort, not a substitute for care.
+set -euo pipefail
+
+fail=0
+
+# 1) Block sensitive file paths even if force-added (-f) past .gitignore.
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    .env|*.env|.env.*|*.key|*.pem|config/config.live.json|*/config.live.json)
+      echo "BLOCKED: sensitive file staged -> $f"
+      fail=1
+      ;;
+  esac
+done < <(git diff --cached --name-only)
+
+# 2) Scan added lines for secret-like values (ignore plain prose mentioning the words).
+added="$(git diff --cached -U0 --no-color | grep -E '^\+' | grep -vE '^\+\+\+' || true)"
+
+if printf '%s' "$added" | grep -qE -- '-----BEGIN [A-Z ]*PRIVATE KEY-----'; then
+  echo "BLOCKED: private key block detected"; fail=1
+fi
+if printf '%s' "$added" | grep -qE 'AKIA[0-9A-Z]{16}'; then
+  echo "BLOCKED: AWS access key id detected"; fail=1
+fi
+# key/secret/token/password assigned to a long quoted value
+if printf '%s' "$added" | grep -qiE '(api[_-]?key|secret|token|passwd|password)["'"'"' ]*[:=][[:space:]]*["'"'"'][A-Za-z0-9/+_-]{20,}'; then
+  echo "BLOCKED: hardcoded secret assignment detected"; fail=1
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo ""
+  echo "Commit aborted by crucible secret guard. Move secrets to environment variables."
+  echo "False positive? Review carefully, then bypass with: git commit --no-verify"
+  exit 1
+fi
+exit 0

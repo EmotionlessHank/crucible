@@ -32,6 +32,9 @@ config/config.live.json
 # OMC / 工具状态
 .omc/
 
+# 本地中文过程笔记(不上传)
+.progress/
+
 # OS / 编辑器
 .DS_Store
 .idea/
