@@ -35,6 +35,12 @@ config/config.live.json
 # 本地中文过程笔记(不上传)
 .progress/
 
+# git worktree 隔离开发目录(worktree-dev skill 使用)
+.worktrees/
+
+# 本地个人权限配置(不上传;worktree 里软链回主工作区)
+.claude/settings.local.json
+
 # OS / 编辑器
 .DS_Store
 .idea/
